@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>華語生詞記憶翻牌 (中文發音)</title>
+    <style>
+        :root {
+            --card-bg: #fff;
+            --card-back: #c0392b; /* 背面改為深紅色，更有華語學習的感覺 */
+            --match-color: #27ae60;
+        }
+
+        body {
+            font-family: "微軟正黑體", "Helvetica Neue", sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #fce4ec; /* 背景改為淡粉色，視覺柔和 */
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+        }
+
+        h1 { margin-bottom: 10px; color: #333; }
+
+        .status-bar {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            background: white;
+            padding: 10px 30px;
+            border-radius: 50px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            font-weight: bold;
+            color: #555;
+        }
+
+        /* 5欄版面 */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 15px;
+            width: 100%;
+            max-width: 1100px; 
+            perspective: 1000px;
+        }
+
+        .memory-card {
+            position: relative;
+            aspect-ratio: 3/4;
+            transform: scale(1);
+            transform-style: preserve-3d;
+            transition: transform 0.5s;
+            cursor: pointer;
+        }
+
+        .memory-card:active {
+            transform: scale(0.97);
+            transition: 0.1s;
+        }
+
+        .memory-card.flip {
+            transform: rotateY(180deg);
+            cursor: default;
+        }
+
+        .front-face, .back-face {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            backface-visibility: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            padding: 5px;
+            box-sizing: border-box;
+            font-weight: bold;
+            user-select: none;
+        }
+
+        .front-face {
+            background: var(--card-bg);
+            color: #333;
+            transform: rotateY(180deg);
+            font-size: 1.6em; 
+            line-height: 1.2;
+            border: 3px solid #ddd;
+            word-break: break-word; 
+        }
+
+        .back-face {
+            background: var(--card-back);
+            color: white;
+            font-size: 2.5em;
+        }
+        .back-face::after {
+            content: "華"; /* 背面裝飾字 */
+            font-family: "標楷體", "KaiTi", serif;
+        }
+
+        .memory-card.matched .front-face {
+            background-color: var(--match-color);
+            color: white;
+            border-color: var(--match-color);
+            animation: pulse 0.5s;
+        }
+
+        @keyframes pulse {
+            0% { transform: rotateY(180deg) scale(1); }
+            50% { transform: rotateY(180deg) scale(1.1); }
+            100% { transform: rotateY(180deg) scale(1); }
+        }
+
+        button {
+            margin-top: 25px;
+            padding: 12px 30px;
+            font-size: 1.2em;
+            background-color: #c0392b;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+        }
+        button:hover { background-color: #a93226; }
+
+        @media (max-width: 768px) {
+            .grid-container {
+                grid-template-columns: repeat(4, 1fr);
+            }
+            .front-face { font-size: 1.2em; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>華語生詞配對</h1>
+    
+    <div class="status-bar">
+        <div>步數: <span id="moves">0</span></div>
+        <div>配對: <span id="pairs">0</span> / <span id="total-pairs">0</span></div>
+    </div>
+
+    <div class="grid-container" id="game-grid"></div>
+
+    <button onclick="initGame()">重新開始</button>
+
+    <script src="words.js"></script>
+
+    <script>
+        const PAIRS_COUNT = 10; 
+        
+        const grid = document.getElementById('game-grid');
+        const movesDisplay = document.getElementById('moves');
+        const pairsDisplay = document.getElementById('pairs');
+        const totalPairsDisplay = document.getElementById('total-pairs');
+
+        let cards = [];
+        let hasFlippedCard = false;
+        let lockBoard = false;
+        let firstCard, secondCard;
+        let moves = 0;
+        let matchedPairs = 0;
+
+        // --- 發音函數 (設定為中文) ---
+        function speak(text) {
+            if (!('speechSynthesis' in window)) return;
+
+            window.speechSynthesis.cancel(); 
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'zh-TW'; // 強制讀中文
+            utterance.rate = 0.9;     // 稍微放慢一點點，適合教學
+            
+            window.speechSynthesis.speak(utterance);
+        }
+
+        if (typeof wordData === 'undefined') {
+            alert("錯誤：找不到 words.js。");
+        }
+
+        function shuffle(array) {
+            return array.sort(() => Math.random() - 0.5);
+        }
+
+        function initGame() {
+            grid.innerHTML = '';
+            moves = 0;
+            matchedPairs = 0;
+            movesDisplay.innerText = moves;
+            pairsDisplay.innerText = matchedPairs;
+            totalPairsDisplay.innerText = PAIRS_COUNT;
+            [hasFlippedCard, lockBoard] = [false, false];
+            [firstCard, secondCard] = [null, null];
+
+            if (wordData.length < PAIRS_COUNT) {
+                var currentCount = wordData.length;
+            } else {
+                var currentCount = PAIRS_COUNT;
+            }
+
+            let selectedWords = shuffle([...wordData]).slice(0, currentCount);
+
+            let deck = [];
+            selectedWords.forEach(item => {
+                // --- 這裡邏輯反轉 ---
+                // type: 'word'    => 對應 words.js 裡的 "word" 欄位 (這是中文)
+                // type: 'meaning' => 對應 words.js 裡的 "meaning" 欄位 (這是英文)
+                
+                deck.push({ id: item.word, text: item.word, type: 'word' });    // 中文卡
+                deck.push({ id: item.word, text: item.meaning, type: 'meaning' }); // 英文卡
+            });
+
+            deck = shuffle(deck);
+
+            deck.forEach(cardData => {
+                const cardElement = document.createElement('div');
+                cardElement.classList.add('memory-card');
+                
+                cardElement.dataset.framework = cardData.id;
+                cardElement.dataset.type = cardData.type;     
+                cardElement.dataset.content = cardData.text;  
+
+                cardElement.innerHTML = `
+                    <div class="front-face">${cardData.text}</div>
+                    <div class="back-face"></div>
+                `;
+
+                cardElement.addEventListener('click', flipCard);
+                grid.appendChild(cardElement);
+            });
+            
+            totalPairsDisplay.innerText = currentCount;
+        }
+
+        function flipCard() {
+            if (lockBoard) return;
+            if (this === firstCard) return;
+
+            this.classList.add('flip');
+
+            // --- 關鍵修改：邏輯反轉 ---
+            const cardType = this.dataset.type;
+            
+            // 如果卡片類型是 'word' (我們定義這是中文生詞) -> 發音
+            if (cardType === 'word') {
+                speak(this.dataset.content);
+            } 
+            // 如果卡片類型是 'meaning' (英文解釋) -> 靜音
+            else {
+                // Do nothing
+            }
+
+            if (!hasFlippedCard) {
+                hasFlippedCard = true;
+                firstCard = this;
+                return;
+            }
+
+            secondCard = this;
+            checkForMatch();
+        }
+
+        function checkForMatch() {
+            moves++;
+            movesDisplay.innerText = moves;
+
+            let isMatch = firstCard.dataset.framework === secondCard.dataset.framework;
+
+            isMatch ? disableCards() : unflipCards();
+        }
+
+        function disableCards() {
+            firstCard.removeEventListener('click', flipCard);
+            secondCard.removeEventListener('click', flipCard);
+            firstCard.classList.add('matched');
+            secondCard.classList.add('matched');
+
+            matchedPairs++;
+            pairsDisplay.innerText = matchedPairs;
+
+            resetBoard();
+
+            let targetPairs = parseInt(totalPairsDisplay.innerText);
+            if (matchedPairs === targetPairs) {
+                setTimeout(() => alert(`太棒了！你用了 ${moves} 步完成練習！`), 500);
+            }
+        }
+
+        function unflipCards() {
+            lockBoard = true;
+            setTimeout(() => {
+                firstCard.classList.remove('flip');
+                secondCard.classList.remove('flip');
+                resetBoard();
+            }, 1000);
+        }
+
+        function resetBoard() {
+            [hasFlippedCard, lockBoard] = [false, false];
+            [firstCard, secondCard] = [null, null];
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
